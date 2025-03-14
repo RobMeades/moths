@@ -20,65 +20,8 @@ import argparse
 from datetime import datetime
 import mysql.connector
 from mysql.connector import Error
-from getpass import getpass  # For secure password input
 
-# The prefix for all debug prints
-PROGRAM_PREFIX = 'moths: '
-
-# The default directory to start searching from
-BASE_DIR_DEFAULT = '.'
-
-# The default name of the host where the MySQL database can be found
-MYSQL_HOST_NAME_DEFAULT = '10.10.1.7'
-
-# The MySQL user name; use None and the user will be prompted
-MYSQL_USER_NAME = None
-
-# The MySQL password; use None and the user will be prompted
-MYSQL_PASSWORD = None
-
-# The default name of the database
-DATABASE_NAME_DEFAULT = 'moths'
-
-# The name of the trapping table in the database
-TABLE_TRAPPING_NAME = 'trapping'
-
-# The name of the instance table in the database
-TABLE_INSTANCE_NAME = 'instance'
-
-class DatabaseConnection:
-    """
-    Custom context manager for database connection.
-    """
-    def __init__(self, **db_config):
-        # Populate the user-name and password the first time through,
-        # if not already done
-        self.db_config = db_config
-        global MYSQL_USER_NAME, MYSQL_PASSWORD
-        if 'user' not in self.db_config and MYSQL_USER_NAME is None:
-            MYSQL_USER_NAME = input(f"{PROGRAM_PREFIX}enter your MySQL username: ")
-        if MYSQL_USER_NAME is not None:
-            self.db_config['user'] = MYSQL_USER_NAME
-        if 'password' not in self.db_config and MYSQL_PASSWORD is None:
-            MYSQL_PASSWORD = getpass(f"{PROGRAM_PREFIX}enter your MySQL password: ")
-        if MYSQL_PASSWORD is not None:
-            self.db_config['password'] = MYSQL_PASSWORD
-        self.connection = None
-
-    def __enter__(self):
-        try:
-            # Establish the connection
-            self.connection = mysql.connector.connect(**self.db_config)
-            return self.connection
-        except Error as e:
-            print(f"{PROGRAM_PREFIX}database connection error: {e}.")
-            raise
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Ensure the connection is closed
-        if self.connection and self.connection.is_connected():
-            self.connection.close()
-
+import moths_common
 
 def ensure_trapping(db_config, date, verbose=False):
     """
@@ -89,14 +32,14 @@ def ensure_trapping(db_config, date, verbose=False):
     return_value = -1
     try:
         if verbose:
-            print(f"{PROGRAM_PREFIX}updating table {TABLE_TRAPPING_NAME}...")
-        with DatabaseConnection(**db_config) as connection:
+            print(f"{moths_common.PREFIX}updating table {moths_common.TABLE_NAME_TRAPPING}...")
+        with moths_common.DatabaseConnection(**db_config) as connection:
             cursor = connection.cursor()
             date_str = date.strftime('%Y-%m-%d')
 
             # SQL query to insert data if not already present
             query = f"""
-            INSERT INTO {TABLE_TRAPPING_NAME} (date)
+            INSERT INTO {moths_common.TABLE_NAME_TRAPPING} (date)
             VALUES (%s)
             ON DUPLICATE KEY UPDATE date = date  -- Dummy update
             """
@@ -106,21 +49,21 @@ def ensure_trapping(db_config, date, verbose=False):
             connection.commit()
 
            # Retrieve the ID of the existing or newly inserted row
-            cursor.execute(f"SELECT id FROM {TABLE_TRAPPING_NAME} WHERE date = %s", (date_str,))
+            cursor.execute(f"SELECT id FROM {moths_common.TABLE_NAME_TRAPPING} WHERE date = %s", (date_str,))
             result = cursor.fetchone()
             if result:
                 return_value = result[0]
                 if cursor.lastrowid == 0:
-                    print((f"{PROGRAM_PREFIX}{TABLE_TRAPPING_NAME} table already"
+                    print((f"{moths_common.PREFIX}{moths_common.TABLE_NAME_TRAPPING} table already"
                            f" had an entry for date {date_str}, ID {return_value}."))
                 else:
-                    print((f"{PROGRAM_PREFIX}entry ID {return_value} added to"
-                           f" {TABLE_TRAPPING_NAME} table with date {date_str}."))
+                    print((f"{moths_common.PREFIX}entry ID {return_value} added to"
+                           f" {moths_common.TABLE_NAME_TRAPPING} table with date {date_str}."))
             else:
-                print((f"{PROGRAM_PREFIX}error: no row found in {TABLE_TRAPPING_NAME}"
+                print((f"{moths_common.PREFIX}ERROR: no row found in {moths_common.TABLE_NAME_TRAPPING}"
                         " table after insert."))
     except Error as e:
-        print(f"{PROGRAM_PREFIX}error inserting data: {e}.")
+        print(f"{moths_common.PREFIX}ERROR inserting data: {e}.")
     return return_value
 
 def add_instance_list(db_config, trapping_id, file_list, verbose=False):
@@ -131,13 +74,13 @@ def add_instance_list(db_config, trapping_id, file_list, verbose=False):
 
     # file_list is expected to be a list of objects containing the
     # component parts of each image file name (the file_path, n, m and blah),
-    # sorted into blah order
+    # sorted in blah order
 
     return_value = -1
     try:
         if verbose:
-            print(f"{PROGRAM_PREFIX}updating table {TABLE_INSTANCE_NAME}...")
-        with DatabaseConnection(**db_config) as connection:
+            print(f"{moths_common.PREFIX}updating table {moths_common.TABLE_NAME_INSTANCE}...")
+        with CommonDatabaseConnection(**db_config) as connection:
             cursor = connection.cursor()
             return_value = 0
             moth_count = 0
@@ -158,21 +101,21 @@ def add_instance_list(db_config, trapping_id, file_list, verbose=False):
 
                 # SQL query to insert data
                 query = f"""
-                INSERT INTO {TABLE_INSTANCE_NAME} (count, image, trapping_id)
+                INSERT INTO {moths_common.TABLE_NAME_INSTANCE} (count, image, trapping_id)
                 VALUES (%s, %s, %s)
                 """
                 cursor.execute(query, (str(count), image_data, trapping_id))
 
                 # Commit the transaction
                 connection.commit()
-                print((f"{PROGRAM_PREFIX}  added {file['file_path']} as entry ID"
-                       f" {cursor.lastrowid} into {TABLE_INSTANCE_NAME} table."))
+                print((f"{moths_common.PREFIX}  added {file['file_path']} as entry ID"
+                       f" {cursor.lastrowid} into {moths_common.TABLE_NAME_INSTANCE} table."))
                 moth_count += count
                 return_value += 1
-            print((f"{PROGRAM_PREFIX}{return_value} picture(s) added, representing"
+            print((f"{moths_common.PREFIX}{return_value} picture(s) added, representing"
                    f" {moth_count} moth(s)."))
     except Error as e:
-        print((f"{PROGRAM_PREFIX}error inserting data: '{e}', only {return_value}"
+        print((f"{moths_common.PREFIX}ERROR inserting data: '{e}', only {return_value}"
                f" of {len(file_list)} image(s) written."))
     return return_value
 
@@ -191,14 +134,14 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
     Iterate over sub-directories (each named with a date)
     """
     return_value = 0
-    print(f"{PROGRAM_PREFIX}searching directory '{base_dir}'.")
+    print(f"{moths_common.PREFIX}searching directory '{base_dir}'.")
     for date_dir in os.listdir(base_dir):
         date_path = os.path.join(base_dir, date_dir)
 
         # Ensure it is a directory named in the form YYYY-MM-DD
         date = date_get(date_dir)
         if date is not None and os.path.isdir(date_path):
-            print(f"{PROGRAM_PREFIX}processing sub-directory '{date_dir}'...")
+            print(f"{moths_common.PREFIX}processing sub-directory '{date_dir}'...")
             # Iterate over the JPG files in the directory, making a list
             files_in_error = 0
             file_list = []
@@ -234,7 +177,7 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
                         file_list_entry['blah'] = file_name_no_ext[:len_prefix]
                         file_list.append(file_list_entry)
                     else:
-                        print((f"{PROGRAM_PREFIX}error: '{file_name}' does not include a count, maybe"
+                        print((f"{moths_common.PREFIX}ERROR: '{file_name}' does not include a count, maybe"
                                 " it is not of the form blah_n.jpg or blah_n_m.jpg?"))
                         files_in_error += 1
             if files_in_error == 0:
@@ -251,7 +194,7 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
                         if 'm' in file:
                             if blah == file['blah']:
                                 if file['n'] is not n:
-                                    print((f"{PROGRAM_PREFIX}error: inconsistent value for 'n' ("
+                                    print((f"{moths_common.PREFIX}ERROR: inconsistent value for 'n' ("
                                            f"'{blah}_{file['n']}_{file['m']}.jpg' after '{blah}_{n}_{file['m']}.jpg'),"
                                             " ignoring this directory."))
                                     files_in_error += 1
@@ -265,27 +208,29 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
                         if update_db:
                             return_value = ensure_trapping(db_config, date, verbose)
                         else:
-                            print((f"{PROGRAM_PREFIX}would have made sure that date '{date.strftime('%Y-%m-%d')}'"
-                                   f" exists in the {TABLE_TRAPPING_NAME} table."))
+                            print((f"{moths_common.PREFIX}would have made sure that date '{date.strftime('%Y-%m-%d')}'"
+                                   f" exists in the {moths_common.TABLE_NAME_TRAPPING} table."))
                         if return_value >= 0:
                             if update_db:
                                 # Add the images to the instance table in the database
                                 return_value = add_instance_list(db_config, return_value, file_list, verbose)
                             else:
-                                print(f"{PROGRAM_PREFIX}would have added {len(file_list)} picture(s) to the instance table:")
+                                print(f"{moths_common.PREFIX}would have added {len(file_list)} picture(s) to the instance table:")
                                 for file in file_list:
-                                    print(f"{PROGRAM_PREFIX}  {file['file_path']}: n={file['n']}", end='')
+                                    print(f"{moths_common.PREFIX}  {file['file_path']}: n={file['n']}", end='')
                                     if 'm' in file:
                                         print(f", m={file['m']}", end='')
                                     print('')
+                            return_value = len(file_list)
                 else:
                     if verbose:
-                        print(f"{PROGRAM_PREFIX}warning: sub-directory '{date_dir}' contains no image files, ignoring.")
+                        print(f"{moths_common.PREFIX}warning: sub-directory '{date_dir}' contains no image files, ignoring.")
             else:
-                print(f"{PROGRAM_PREFIX}error: ignoring sub-directory '{date_dir}' as it contains non-conformant .jpg files.")
+                print(f"{moths_common.PREFIX}ERROR: sub-directory '{date_dir}' contains non-conformant .jpg files.")
         else:
             if verbose:
-                print(f"{PROGRAM_PREFIX}ignoring sub-directory '{date_dir}', likely because it is not of the form YYYY-MM-DD.")
+                print(f"{moths_common.PREFIX}ignoring sub-directory '{date_dir}', likely because it is not of the form YYYY-MM-DD.")
+    return return_value
 
 
 if __name__ == '__main__':
@@ -308,15 +253,16 @@ if __name__ == '__main__':
                                                   "            |- IMG_2568_3.jpg\n"
                                                   "            |- IMG_2570_1_a.jpg\n"
                                                   "            |- IMG_2570_1_b.jpg\n"),
-                                    formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('base_dir', nargs='?', default=BASE_DIR_DEFAULT, help=("directory to search from,"
-                                                                               " default '" +
-                                                                               BASE_DIR_DEFAULT + "'."))
-    parser.add_argument('-a', default=MYSQL_HOST_NAME_DEFAULT, help=(f"the address where the MySQL server containing"
-                                                                      " the database can be found, default '" +
-                                                                      MYSQL_HOST_NAME_DEFAULT + "'."))
-    parser.add_argument('-d', default=DATABASE_NAME_DEFAULT, help=(f"the database name to import into,"
-                                                                    " default '" + DATABASE_NAME_DEFAULT + "'."))
+                                     formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('base_dir', nargs='?', default=moths_common.BASE_DIR_DEFAULT, help=("directory to search from,"
+                                                                                            " default '" +
+                                                                                            moths_common.BASE_DIR_DEFAULT + "'."))
+    parser.add_argument('-a', default=moths_common.MYSQL_HOST_NAME_DEFAULT, help=(f"the address where the MySQL server containing"
+                                                                                   " the database can be found, default '" +
+                                                                                   moths_common.MYSQL_HOST_NAME_DEFAULT + "'."))
+    parser.add_argument('-d', default=moths_common.DATABASE_NAME_DEFAULT, help=(f"the database name to import into,"
+                                                                                 " default '" +
+                                                                                 moths_common.DATABASE_NAME_DEFAULT + "'."))
     parser.add_argument('-x', default=False, action='store_true', help=("if this is specified a dry run will"
                                                                         " be performed, the database will not"
                                                                         " be updated."))
@@ -329,4 +275,5 @@ if __name__ == '__main__':
         'database': args.d
     }
 
-    sys.exit(process_directory(args.base_dir, db_config, not args.x, args.v))
+    # Return 0 on success (i.e. something was imported), else 1
+    sys.exit(not (process_directory(args.base_dir, db_config, not args.x, args.v) >= 0))

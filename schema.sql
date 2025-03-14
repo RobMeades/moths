@@ -22,11 +22,13 @@ USE `moths`;
 -- Dumping structure for table moths.instance
 CREATE TABLE IF NOT EXISTS `instance` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `count` int unsigned NOT NULL DEFAULT '0',
-  `variant` tinytext,
-  `image` mediumblob,
-  `trapping_id` int unsigned NOT NULL,
-  `moth_id` int unsigned DEFAULT NULL,
+  `count` int unsigned NOT NULL DEFAULT '0' COMMENT 'The number of moths of this type that this instance represents.',
+  `variant` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Variant: e.g. male/female, worn etc.',
+  `image` mediumblob COMMENT 'A JPG image.',
+  `trapping_id` int unsigned NOT NULL COMMENT 'A link to the trapping table row for this moth',
+  `moth_id` int unsigned DEFAULT NULL COMMENT 'A link to the moth table row for this moth.',
+  `html_use_image` tinyint unsigned DEFAULT '1' COMMENT 'Set this to 0/False if the image is not one worth using when this data is exported to HTML.',
+  `html_description` tinytext COMMENT 'A short description of the image here, to be used in exported HTML.',
   PRIMARY KEY (`id`),
   KEY `moth_id` (`moth_id`),
   KEY `trapping_id` (`trapping_id`),
@@ -51,22 +53,27 @@ CREATE TABLE IF NOT EXISTS `moth` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `common_name` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
   `scientific_name` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,
-  `agg_id` int unsigned DEFAULT NULL,
+  `agg_id` int unsigned DEFAULT NULL COMMENT 'If this moth has an "agg" mot (e.g. Oak Beauty agg. for Pale and Great Oak Beauty) then enter it here.',
   `confusion_1_id` int unsigned DEFAULT NULL,
   `confusion_2_id` int unsigned DEFAULT NULL,
   `confusion_3_id` int unsigned DEFAULT NULL,
   `confusion_4_id` int unsigned DEFAULT NULL,
+  `html_name` tinytext COMMENT 'The HTML name that should be used for this moth, used when moth data is exported to an HTML page.  If NULL then a name based on the common name may be constructed.',
+  `html_best_instance_id` int unsigned DEFAULT NULL COMMENT 'The instance ID which best represents this moth, i.e. the one with the best picture.  html_best_url may be populated instead.',
+  `html_best_url` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Populate this field if html_best_instance_id is not populated: it should point to an entry on from the existing https://www.meades.org which best represents this moth.',
   PRIMARY KEY (`id`),
   KEY `agg_id` (`agg_id`) USING BTREE,
   KEY `confusion_1_id` (`confusion_1_id`) USING BTREE,
   KEY `confusion_2_id` (`confusion_2_id`) USING BTREE,
   KEY `confusion_3_id` (`confusion_3_id`) USING BTREE,
   KEY `confusion_4_id` (`confusion_4_id`) USING BTREE,
+  KEY `html_instance_best_id` (`html_best_instance_id`) USING BTREE,
   CONSTRAINT `agg_id` FOREIGN KEY (`agg_id`) REFERENCES `moth` (`id`),
   CONSTRAINT `confusion_1_id` FOREIGN KEY (`confusion_1_id`) REFERENCES `moth` (`id`),
   CONSTRAINT `confusion_2_id` FOREIGN KEY (`confusion_2_id`) REFERENCES `moth` (`id`),
   CONSTRAINT `confusion_3_id` FOREIGN KEY (`confusion_4_id`) REFERENCES `moth` (`id`),
-  CONSTRAINT `confusion_4_id` FOREIGN KEY (`confusion_4_id`) REFERENCES `moth` (`id`)
+  CONSTRAINT `confusion_4_id` FOREIGN KEY (`confusion_4_id`) REFERENCES `moth` (`id`),
+  CONSTRAINT `html_best_instance_id` FOREIGN KEY (`html_best_instance_id`) REFERENCES `instance` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Not a butterfly.';
 
 -- Data exporting was unselected.
