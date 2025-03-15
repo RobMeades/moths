@@ -20,10 +20,11 @@ import argparse
 from datetime import datetime
 import requests
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from pathlib import Path
 import mysql.connector
 from mysql.connector import Error
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import moths_common
 
@@ -31,8 +32,29 @@ import moths_common
 # MUST END WITH A /
 BASE_URL_DEFAULT = 'https://www.meades.org/moths/'
 
+# The default name to display on the exported pages for the web-site 
+SITE_NAME_DEFAULT = 'Meades Family'
+
 # Moth trapping name prefix
 TRAPPING_NAME_PREFIX = 'moths_'
+
+# The index file name for all of the moth pages on the web-site, assumed
+# to be at BASE_URL_DEFAULT; do NOT include the '.html' extension
+MOTH_INDEX_FILE_NAME = 'moths'
+
+# The offset that is added to the ID of an instance when creating the
+# image file name for that instance to ensure that there is no clash
+# in names with the image files previously created by hand on the
+# web site
+IMAGE_FILE_NAME_INDEX_OFFSET = 100
+
+# Array to convert a small integer to a word
+INT_TO_WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+               'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen',
+               'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen',
+               'nineteen','twenty', 'twenty-one', 'twenty-two', 'twenty-three',
+               'twenty-four', 'twenty-five', 'twenty-six', 'twenty-seven'
+               'twnenty-eight', 'twenty-nine', 'thirty']
 
 def date_from_path(path):
     """
@@ -48,7 +70,7 @@ def url_trapping_latest(base_url, verbose=False):
     containing trappings are assumed to be named as moths_DD-MM-YY
     and contain a HTML page of the same name.
     """
-    return_value = None
+    last_published_file_path = None
     if verbose:
         print((f"{moths_common.PREFIX}searching '{base_url}' for directories"
                f" of the pattern '{TRAPPING_NAME_PREFIX}DD-MM-YY/'..."))
@@ -62,8 +84,8 @@ def url_trapping_latest(base_url, verbose=False):
         # This pattern looks for <a> tags with href attributes that begin
         # with TRAPPING_NAME_PREFIX_DD-MM-YY and end with a '/', indicating
         # a directory
-        pattern = re.compile(f'<a\\s+(?:[^>]*?\\s+)?href="({TRAPPING_NAME_PREFIX}\\d\\d-\\d\\d-\\d\\d/)"')
-        matches = pattern.findall(response.text)        
+        pattern = re.compile(f'<a\\s+(?:[^>]*?\\s+)?href=\\s*"({TRAPPING_NAME_PREFIX}\\d\\d-\\d\\d-\\d\\d/)"')
+        matches = pattern.findall(response.text)
         if verbose:
             print(f"{moths_common.PREFIX}found {len(matches)} directories:")
             for match in matches:
@@ -74,9 +96,9 @@ def url_trapping_latest(base_url, verbose=False):
         # Sort the list in order of DD-MM-YY
         files.sort(key=date_from_path)
         if len(files) > 0:
-            return_value = files[len(files) - 1]
+            last_published_file_path = files[len(files) - 1]
             print((f"{moths_common.PREFIX}latest trapping page at '{base_url}' is"
-                   f" '{return_value[len(base_url):]}'."))
+                   f" '{last_published_file_path[len(base_url):]}'."))
         else:
             if verbose:
                 print((f"{moths_common.PREFIX} found no directories macthing the pattern"
@@ -84,13 +106,13 @@ def url_trapping_latest(base_url, verbose=False):
     else:
         print((f"{moths_common.PREFIX}ERROR: failed to retrieve page ({response.status_code})."))
 
-    return return_value
+    return last_published_file_path
 
-def url_copy_local(url, base_url, base_dir, verbose=False):
+def url_copy_local(base_dir, base_url, url, verbose=False):
     """
     Fetch a url to a local file, returning the file path.
     """
-    return_value = None
+    file_path = None
     local_file_path = os.path.join(base_dir, url[len(base_url):])
     if verbose:
         print((f"{moths_common.PREFIX}fetching '{url}' to '{local_file_path}'."))
@@ -98,15 +120,15 @@ def url_copy_local(url, base_url, base_dir, verbose=False):
     response = requests.get(url)
     if response.status_code == 200:
         file_path = Path(local_file_path)
+        # Make sure the directories exist
         file_path.parent.mkdir(parents=True, exist_ok=True)
         with file_path.open(mode='wb') as file:
             file.write(response.content)
-        return_value = file_path
     else:
         print((f"{moths_common.PREFIX}ERROR: failed to retrieve '{url}' ({response.status_code})."))
-    return return_value
+    return file_path
 
-def trappings_db_get_data(date_from, db_config, base_url, verbose=False):
+def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
     """
     Get the data required for the HTML page for trappings that are present in the
     database after the given date, returning a dictionary of trappings, each
@@ -137,7 +159,8 @@ def trappings_db_get_data(date_from, db_config, base_url, verbose=False):
                   f" after {date_from.strftime('%Y-%m-%d')}.")
             success = True
             for trapping in trapping_list:
-                # Next, a query to obtain the instances for each trapping
+                # Next, a query to obtain the instances for each trapping that have
+                # an image attached or a count > 0
                 query = f"""
                 SELECT
                   {moths_common.TABLE_NAME_INSTANCE}.id AS instance_id,
@@ -155,32 +178,75 @@ def trappings_db_get_data(date_from, db_config, base_url, verbose=False):
                 FROM {moths_common.TABLE_NAME_INSTANCE}
                 JOIN {moths_common.TABLE_NAME_TRAPPING} ON {moths_common.TABLE_NAME_INSTANCE}.trapping_id = {moths_common.TABLE_NAME_TRAPPING}.id
                 JOIN {moths_common.TABLE_NAME_MOTH} ON {moths_common.TABLE_NAME_INSTANCE}.moth_id = {moths_common.TABLE_NAME_MOTH}.id
-                WHERE {moths_common.TABLE_NAME_TRAPPING}.date = %s
+                WHERE {moths_common.TABLE_NAME_TRAPPING}.date = %s AND
+                      (({moths_common.TABLE_NAME_INSTANCE}.html_use_image AND {moths_common.TABLE_NAME_INSTANCE}.image IS NOT NULL) OR {moths_common.TABLE_NAME_INSTANCE}.count > 0)
                 ORDER BY {moths_common.TABLE_NAME_TRAPPING}.date DESC;
                 """
                 cursor.execute(query, (trapping['date'],))
-                # Fetch the result and add it to the dictionary
-                trapping['instance_list'] = cursor.fetchall()
+                # Fetch the result
+                instance_list = cursor.fetchall()
+
+                # The list may contain more than one instance per moth:
+                # reduce it to an instance per moth with a list of
+                # images and image-related stuff attached
+                trapping['moth_list'] = []
+                for instance in instance_list:
+                    instance_trapping = {}
+                    instance_trapping['count'] = 0
+                    found = False
+                    for item in trapping['moth_list']:
+                        if instance['moth_id'] == item['moth_id']:
+                            # Already have this 'moth_id' in the list,
+                            # use it instead
+                            instance_trapping = item
+                            found = True
+                            break;
+                    # Add the moth-related stuff that doesn't change between instances
+                    instance_trapping['moth_id'] = instance['moth_id']
+                    instance_trapping['common_name'] = instance['common_name']
+                    instance_trapping['scientific_name'] = instance['scientific_name']
+                    instance_trapping['html_name'] = instance['html_name']
+                    instance_trapping['html_best_instance_id'] = instance['html_best_instance_id']
+                    instance_trapping['html_best_url'] = instance['html_best_url']
+                    # Update the count and add the image-related stuff
+                    # to this item's 'image_list'
+                    instance_trapping['count'] += instance['count']
+                    if 'image' in instance and instance['html_use_image']:
+                        object = {}
+                        object['image'] = instance['image']
+                        #  Need this later for unique naming of the image file
+                        object['instance_id'] = instance['instance_id']
+                        object['html_description'] = instance['html_description']
+                        object['variant'] = instance['variant']
+                        if 'image_list' not in instance_trapping:
+                            instance_trapping['image_list'] = []
+                        instance_trapping['image_list'].append(object.copy())
+                    if not found:
+                        # Didn't have this moth ID before, add it to the list
+                        trapping['moth_list'].append(instance_trapping.copy())
+
                 if verbose:
                     print(f"{moths_common.PREFIX}trapping on {trapping['date'].strftime('%Y-%m-%d')}"
-                          f" had {len(trapping['instance_list'])} instance(s).")
-                for instance in trapping['instance_list']:
-                    # Finally, for moths we have photographed before, populate a 'html_previous_photo'
+                          f" had {len(instance_list)} instance(s), {len(trapping['moth_list'])} different moth(s).")
+                for instance in trapping['moth_list']:
+                    # If 'html_name' is empty, generate a name from 'common_name'
+                    if not instance['html_name']:
+                        instance['html_name'] = instance['common_name'].replace(' ', '_')
+                    # Finally, for moths we have photographed before, populate a 'html_previous_image'
                     # field for each instance in the returned dictionary.
                     # In cases where there is a 'html_best_url' it will be that, otherwise
                     # if 'html_best_instance_id' has been populated we can work out what the
                     # 'html_best_url' would be from that, in the form
                     # 'base_url + moths_DD-MM-YY/moths_DD-MM-YY.html#html_name'.
                     # Alternatively, if the 'trapping_id' for the 'html_best_instance_id'
-                    # is this `trapping_id` then there _is_ no previous photo, this is our first.
+                    # is this 'trapping_id' then there _is_ no previous photo, this is our first.
                     if instance['html_best_url']:
-                        instance['html_previous_photo'] = instance['html_best_url']
+                        instance['html_previous_image'] = instance['html_best_url']
                     else:
                         if instance['html_best_instance_id']:
                             if verbose:
                                 print((f"{moths_common.PREFIX}moth ID {instance['moth_id']}"
-                                       f" ('{instance['common_name']}'), referred to by instance ID"
-                                       f" {instance['instance_id']}, does not have a 'html_best_url',"
+                                       f" ('{instance['common_name']}') does not have a 'html_best_url',"
                                         " computing one..."))
                             # This query should return a single row combining the required instance
                             # and moth data for the instance ID that is 'html_best_instance_id'
@@ -204,7 +270,7 @@ def trappings_db_get_data(date_from, db_config, base_url, verbose=False):
                                    best_url_computed[0]['html_name']:
                                     if trapping['trapping_id'] != best_url_computed[0]['trapping_id']:
                                         prefix_str = TRAPPING_NAME_PREFIX + trapping['date'].strftime('%d-%m-%y')
-                                        instance['html_previous_photo'] = urljoin(base_url, prefix_str + '/' + \
+                                        instance['html_previous_image'] = urljoin(base_url, prefix_str + '/' + \
                                                                                   prefix_str + '.html#' + \
                                                                                   best_url_computed[0]['html_name']) 
                                         if verbose:
@@ -213,41 +279,154 @@ def trappings_db_get_data(date_from, db_config, base_url, verbose=False):
                                     else:
                                         if verbose:
                                             print((f"{moths_common.PREFIX}moth ID {instance['moth_id']}"
-                                                   f" ('{instance['common_name']}'), referred to by instance ID"
-                                                   f" {instance['instance_id']}, does not need a 'html_previous_photo';"
+                                                   f" ('{instance['common_name']}') does not need a 'html_previous_image';"
                                                     " it is the first of its kind."))
                                 else:
                                     success = False
                                     print((f"{moths_common.PREFIX}ERROR, could not compute 'html_best_url' for"
-                                           f" moth ID {instance['moth_id']} ('{instance['common_name']}'), referred"
-                                           f" to by instance ID {instance['instance_id']}, since the best instance"
-                                           f" ID pointed-to ({instance['html_best_instance_id']}) either has no image"
-                                            " or has 'html_use_image' set to False or has no 'html_name'."))
+                                           f" moth ID {instance['moth_id']} ('{instance['common_name']}') since the"
+                                           f" best instance ID pointed-to ({instance['html_best_instance_id']}) either"
+                                            " has no image or has 'html_use_image' set to False or has no 'html_name'."))
                             else:
                                 success = False
                                 print((f"{moths_common.PREFIX}ERROR, could find not find 'html_best_instance_id'"
                                        f" ({instance['html_best_instance_id']}) for moth ID {instance['moth_id']}"
-                                       f" ('{instance['common_name']}'), referred to by instance ID {instance['instance_id']},"
-                                        " or found more than one."))
+                                       f" ('{instance['common_name']}'), or found more than one."))
                         else:
                             success = False
                             print((f"{moths_common.PREFIX}ERROR, moth ID {instance['moth_id']}"
-                                   f" ('{instance['common_name']}'), referred to by instance ID"
-                                   f" {instance['instance_id']}, does not have a 'html_best_url'"
+                                   f" ('{instance['common_name']}') does not have a 'html_best_url'"
                                     " or a 'html_best_instance_id'."))
-            if not success:
+            if success:
+                # Sort the list with entries that have no 'html_previous_image'
+                # (i.e. new ones) at the top, and then in descending order of 'count'
+                trapping['moth_list'].sort(key=lambda x: ('html_previous_image' in x, -x['count']))
+            else:
                 trapping_list = []
     except Error as e:
         print(f"{moths_common.PREFIX}ERROR retrieving data: {e}.")
     return trapping_list
 
-def export_html(base_dir, db_config, base_url, verbose=False):
+def trappings_publish(base_dir, base_url, site_name, last_published_file_path,
+                      trapping_list, jinja2_env, verbose=False):
+    """
+    Publish trapping_list as HTML pages and modify last_published_file_path to include
+    the new trappings in the navigation list, returning the number of pages created.
+    """
+
+    # Load the template HTML file
+    template = jinja2_env.get_template('moths.html')
+
+    # A context to carry all the variables that are required by the template HTML file
+    context = {}
+
+    # Populate the static members of the context
+    context['url_base_moths'] = base_url
+    context['name_prefix'] = TRAPPING_NAME_PREFIX
+    context['moth_index_file_name'] = MOTH_INDEX_FILE_NAME
+    # The path to the site index URL, used in the link back to "home" at the bottom of the
+    # HTML page, is assumed to be at the root of the base URL, file 'index.html', and
+    # is a relative path
+    split_url = urlsplit(base_url)
+    dot_dot_count = split_url.path.count('/')
+    context['url_site_index'] = ''
+    for x in range(dot_dot_count):
+        context['url_site_index'] += '../'
+    context['url_site_index'] += 'index.html'
+    context['site_name'] = site_name
+    file_path_previous = last_published_file_path
+    # The date of the previous trapping from the web-site
+    date_previous = date_from_path(str(file_path_previous))
+    # Run through the list populating the other context variables and writing the files
+    for trapping in trapping_list:
+        date_this_dmy = trapping['date'].strftime('%d-%m-%y') # 01-06-25
+        date_this_long = trapping['date'].strftime('%e %B %Y').strip() # 1 June 2025
+
+        # Update the "Forward to" section of the last published file path to point
+        # to this one
+        if file_path_previous:
+            with open(str(file_path_previous), 'r') as file:
+                file_contents = file.read()
+            name = TRAPPING_NAME_PREFIX + date_this_dmy
+            forward_to = f"Forward to <a href=\"{'../' + name + '/' + name + '.html'}\">{date_this_long}</a> moth page, b"
+            # This regex looks for "<i> Back to <a href="*">*</a> moth page" and changes
+            # it to "<i> Forward to <a href="blah">blah</a> moth page, back to...".
+            # In implementation terms, it replaces the 'B' with the value of 'forward_to'.
+            file_contents = re.sub('(<i>\\s*)B(ack to <a\\s+href=\\s*"[^"]+"\\s*>[^<]+</a> moth page)',
+                                   f'\\1{forward_to}\\2',
+                                   file_contents, count=1, flags=re.MULTILINE)
+            with open(file_path_previous, 'w') as file:
+                file.write(file_contents)
+
+        # The name of both the directory and the file for this trapping: moths_DD-MM-YY
+        file_and_dir_name = f"{TRAPPING_NAME_PREFIX}{trapping['date'].strftime('%d-%m-%y')}"
+        dir = os.path.join(base_dir, file_and_dir_name)
+        file_path = Path(os.path.join(dir, file_and_dir_name) + '.html')
+        # Make sure the directories exist
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Populate the trapping-specific context variables
+        context['date_this_long'] = date_this_long
+        context['date_previous_dmy'] = date_previous.strftime('%d-%m-%y') # 01-06-25
+        context['date_previous_long'] = date_previous.strftime('%e %B %Y').strip() # 1 June 2025
+        context['description_trapping'] = trapping['description']
+        context['image_list'] = []
+        context['reference_list'] = []
+        mention_list = []
+        for instance in trapping['moth_list']:
+            object = {}
+            object['common_name'] = instance['common_name']
+            object['html_name'] = instance['html_name']
+            object['count'] = instance['count']
+            if object['count'] < len(INT_TO_WORD):
+                object['count_word'] = INT_TO_WORD[instance['count']]
+            else:
+                object['count_word'] = 'lots of'
+            if 'html_previous_image' in instance:
+                object['previous_image'] = instance['html_previous_image']
+            if 'image_list' in instance:
+                for image in instance['image_list']:
+                    if object['html_name'] not in mention_list:
+                        # If we haven't mentioned this image before, do so now
+                        object['mention'] = True
+                    else:
+                        object['mention'] = False
+                    # Have an image: make a unique name for it, write the
+                    # file and add it to the 'image_list' of the context
+                    image_file_name = instance['html_name'].lower() + '_' + str(image['instance_id'] + IMAGE_FILE_NAME_INDEX_OFFSET) + '.jpg'
+                    with open(os.path.join(base_dir, file_and_dir_name, image_file_name), 'wb') as file:
+                        file.write(image['image'])
+                    object['file_name'] = image_file_name
+                    object['description'] = image['html_description']
+                    object['image'] = image_file_name
+                    context['image_list'].append(object.copy())
+                    # Update the mention list
+                    mention_list.append(object['html_name'])
+            else:
+                # Either don't have an image or don't want to use it,
+                # add it to the 'reference_list' of the context
+                context['reference_list'].append(object.copy())
+
+        # Write the rendered HTML file
+        with open(file_path, 'w') as file:
+            file.write(template.render(context))
+        print(f"{moths_common.PREFIX}CREATED new directory '{dir}' and populated it with all"
+              f" of the files for the trapping on {trapping['date'].strftime('%Y-%m-%d')}.")
+
+        # Update the previous date and the previous file path
+        # to be this one
+        date_previous = trapping['date']
+        file_path_previous = file_path
+
+    return len(trapping_list)
+
+def export_html(base_dir, base_url, site_name, db_config, jinja2_env, verbose=False):
     """
     Export HTML pages from the moth database in a form that can be
     copied to base_url and should "just work" (TM) with any pages
     already there.
     """
-    return_value = 0
+    trappings_published = 0
 
     # Check out the directories off base_url to determine the last trapping date
     # already published there
@@ -255,19 +434,30 @@ def export_html(base_dir, db_config, base_url, verbose=False):
     if last_published:
         # Fetch the last published trapping page to a local directory of the same
         # name so that we can modify it
-        last_published_file_path = url_copy_local(last_published, base_url, base_dir, verbose)
+        last_published_file_path = url_copy_local(base_dir, base_url, last_published, verbose)
         if last_published_file_path:
             # Get the date from the file path
             last_published_date = date_from_path(str(last_published_file_path))
             # Get a list of trappings from the database that are later than this date,
             # each of which contains a dictionary of the fields that we need to
             # make the HTML page
-            data = trappings_db_get_data(last_published_date, db_config, base_url, verbose)
-            if len(data) > 0:
-                # TODO
-                pass
+            trapping_list = trappings_db_get_data(base_url, last_published_date, db_config, verbose)
+            if len(trapping_list) > 0:
+                # Create the HTML files for each trapping and modify the
+                # last published file to include them in the navigation sequence
+                trappings_published = trappings_publish(base_dir, base_url, site_name,
+                                                        last_published_file_path, trapping_list,
+                                                        jinja2_env, verbose)
+                if trappings_published > 0:
+                    print(f"{moths_common.PREFIX}finished.")
+                    print(f"{moths_common.PREFIX}please FTP the newly create HTML folder(s),"
+                          f" plus the updated file {str(last_published_file_path)}"
+                          f" (i.e. everything from {base_dir} if it was empty beforehand),"
+                          f" to {base_url[:-1]} and your published moth data will be up to date.")
+                    print(f"{moths_common.PREFIX}you may modify the copies of these HTML files,"
+                           " they will not be modified by this program in future runs once uploaded.")
 
-    return return_value;
+    return trappings_published
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=("A script to export data from the moth database"
@@ -285,6 +475,8 @@ if __name__ == '__main__':
     parser.add_argument('-u', default=BASE_URL_DEFAULT, help=("the base URL of the set of web pages that the exported"
                                                               " page(s) should follow-on from, MUST END WITH A /,"
                                                               " default '" + BASE_URL_DEFAULT + "'."))
+    parser.add_argument('-n', default=SITE_NAME_DEFAULT, help=("the name to display for the web-site,"
+                                                               " default '" + SITE_NAME_DEFAULT + "'."))
     parser.add_argument('-a', default=moths_common.MYSQL_HOST_NAME_DEFAULT, help=(f"the address where the MySQL server"
                                                                                    " containing the database can be"
                                                                                    " found, default '" +
@@ -303,5 +495,11 @@ if __name__ == '__main__':
         'database': args.d
     }
 
+    # The Jinja2 environment
+    jinja2_env = Environment (
+        loader = FileSystemLoader("templates"),
+        autoescape = select_autoescape()
+    )
+
     # Return 0 on success (i.e. something was exported), else 1
-    sys.exit(not (export_html(args.base_dir, db_config, args.u, args.v) >= 0))
+    sys.exit(not (export_html(args.base_dir, args.u, args.n, db_config, jinja2_env, args.v) >= 0))
