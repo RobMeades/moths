@@ -1,5 +1,5 @@
 # Introduction
-This repo contains the scripts I use to help populate a MySQL database with the results of my moth trapping.
+This repo contains the scripts I use to help populate a MySQL database with the results of our moth trapping.
 
 # Database Schema
 The database [schema](schema.sql) is quite simple, essentially as below:
@@ -35,7 +35,7 @@ The database [schema](schema.sql) is quite simple, essentially as below:
       - moth_id (UNSIGNED INT, link to the moth table row ID for this instance)
 ```
 
-You will notice that, in [schema](schema.sql), there are additional fields, all prefixed with `html_`:  these are required to support exporting the moth data to HTML pages that integrate with pre-existing HTML pages, see the description of `moths_export_html.py` below for more information.
+You will notice that, in [schema.sql](schema.sql), there are additional fields, all prefixed with `html_`:  these are required to support exporting the moth data to HTML pages that integrate with pre-existing HTML pages, see the description of `moths_export_html.py` below for more information.
 
 # Scripts
 There are two main Python scripts, both of which include command-line help, plus a `moths_common.py` for some stuff that is shared between them.
@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 You will also need to have installed a [MySQL](https://www.mysql.com/) server somewhere and created on it a database with the [schema](schema.sql).  The machine on which you run the scripts will need to be able to log-in to that MySQL server.
 
-You will need to install a client application on the scripting machine that allows you to edit the database; for the purposes her [Heidi SQL](https://www.heidisql.com/) is sufficient.
+You will need to install a client application on the scripting machine that allows you to edit the database; for the purposes her [HeidiSQL](https://www.heidisql.com/) is sufficient.
 
 ## Usage
 The process for using the scripts is as follows:
@@ -57,15 +57,15 @@ The process for using the scripts is as follows:
 - trap some moths and photograph those moths as you wish,
 - edit the photographs as you please, so that you end up with a set that effectively catalogues the moths (see the description of `moths_import.py` below for the naming patten),
 - run `moths_import.py` on those photographs: this will import the photographs into the database; note that you can do a dry-run first if you wish to check that your naming was good,
-- populate the empty fields in the new `trapping` entry of the database (e.g. description, temperature, etc.),
-- identify each of the moths in the database by editing the imported data to link each new `instance` to a `moth ID`; this may involve creating new `moth` entries, updating the `html_` entries for existing `moth` entries (see the description of `moths_export_htnl.py` for how these fields are used), deciding whether the photograph of an `instance` is one you want to display or not, etc.
+- populate the empty fields in the new `trapping` entry of the database (e.g. description, temperature, etc.) using something like [HeidiSQL](https://www.heidisql.com/),
+- identify each of the moths in the database by editing the imported data to link each new `instance` to a `moth ID`; this may involve creating new `moth` entries, updating the `html_` entries for existing `moth` entries (see the description of `moths_export_html.py` for how these fields are used), deciding whether the photograph of an `instance` is one you want to display or not, etc.
 - if necessary, manually add any instances where you took no photographs, linking each one up to a `moth` in the same way,
-- run `moths_export.py` to export the new data to an `.html` page,
-- open the exported `.html` page in a browser to see what it is like, edit any data in the database as necessary to make the text/pictures as you please, re-run `moths_export.py`, repeating until happy,
+- run `moths_export_html.py` to export the new data to an `.html` page,
+- open the exported `.html` page in a browser to see what it looks like, edit any data in the database as necessary to make the text/pictures as you please, re-run `moths_export_html.py`, repeating until happy,
 - optionally, once you are going to export the `.html` page no more, open it in an HTML editor and make any manual changes (e.g. re-sizing or re-arranging the pictures),
 - copy the new `.html` page, plus the locally modified version of the last `.html` page that was already on the web-site (which will have had its `Forward to` navigation line modified to reflect the added page) to the web-site.
 
-Note that, once a trapping is exported and published back to the web-site, future runs of `moths_export.html` will not modify that page's content (except to add a `Forward to` navigation entry to the very latest one), no edits in the database to that `trapping` entry or any of the associated `instance` entries will be made; such changes may still be made manually of course.
+Note that, once a trapping is exported and published back to the web-site, future runs of `moths_export_html.html` will not modify that page's content (except to add a `Forward to` navigation entry to the very latest one), no edits in the database to that `trapping` entry or any of the associated `instance` entries will be applied; such changes may still be made manually of course.
 
 ## `moths_import.py`
 This script searches a directory for sub-directories named in the pattern `YYYY-MM-DD`, which are assumed to be the results of a trapping on the previous night.
@@ -82,7 +82,7 @@ IMG_7852_2.jpg
 IMG_7854_1.jpg
 ```
 
-If all of the `.jpg` files in a directory conform to the pattern, a new trapping table row is created for the given date (if it does not already exist) and instance table rows are added for each picture, linked to that trapping table row.  It is then up to the user to populate the remaining fields in these table rows, by whatever means, and link each instance row to a moth row, through the ID field, when the moth in that picture has been identified.
+If all of the `.jpg` files in a directory conform to the pattern, a new trapping table row is created for the given date (if it does not already exist) and instance table rows are added for each picture, linked to that trapping table row.  It is then up to the user to populate the remaining fields in these table rows, by whatever means (e.g. [HeidiSQL](https://www.heidisql.com/)), and link each instance row to a moth row, through the ID field, when the moth in that picture has been identified.
 
 ## `moths_export_html.py`
 This script exports the data from the database into per-trapping HTML pages that are compatible with the ones previously published at https://www.meades.org/moths/moths.  These HTML pages were all originally hand-crafted but in a very specific format which allows them to be parsed by the PHP scripts that create the dynamic moth browser page here: https://www.meades.org/moths/moth_browse.php.
@@ -92,16 +92,17 @@ A page is generally structured as follows:
 - a heading of the form "Moths Found on 1 April 2025",
 - a sub-heading, with links, of the form "Forward to 7 April 2025 moth page, back to 22 March 2025 moth page, to general moths page", the "Forward blah" bit being absent if this is the most recent HTML page,
 - a short paragraph commenting on the trapping, followed by bullets with links to the photographs on the page, with a "previously photographed" link for each one (where available), e.g.:
+
   >A good variety in the trap, it is July after all.  Those worth photographing included:
   > - a rather fine example of Swallow-tailed Moth (previously photographed here),
   > - the amazingly beautiful argyresthia agg., either brokeella or goedartella.
-- a final paragraph listing the other moths in the trap, those either not pictured or not worth displaying a picture of 'cos it is not that interesting, but, for each one, linking to a previous picture of that moth, and including the number of that moth there were in the trapping,
+- a final paragraph listing the other moths in the trap, those either not pictured or not worth displaying a picture of 'cos it is not that interesting, but, for each one, linking to a previous picture of that moth, and including the number of that moth present in the trap,
 - a table containing the photographs, noting that each photograph name must be unique within the set of photographs on the website since they are turned into thumbnails with the same name that are all placed in the same directory for the moth browser page,
 - a standard footer.
 
 Programmatically, such a page is created using [jinja2](https://pypi.org/project/Jinja2/); the template from which the page is generated can be found in the [templates](templates) directory.
 
-To support this export script, there are additional fields in the [schema](schema.sql), all prefixed with `html_`, as follows:
+To support this export script, there are additional fields in [schema.sql](schema.sql), all prefixed with `html_`, as follows:
 
 ```
 - moths

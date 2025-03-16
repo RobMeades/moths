@@ -2,7 +2,7 @@
 <html>
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
-        <!--SeaMonkey--><!-- Note: the SeaMonkey comment allows some of the link constructions on this page to be picked-up correctly by the regex in moth_browse.php -->
+        <!--SeaMonkey--><!-- Note: the SeaMonkey comment allows some of the link constructions on this page to be picked-up correctly by the regexes in moth_browse.php -->
         <title>Moths Found {{ date_this_long }}</title>
     </head>
     <body style="color: rgb(0, 0, 0); background-color: rgb(255, 255, 255); background-image: url(../../back.jpg);" alink="#00afaf" link="#0000ff" vlink="#7f007f">
@@ -14,14 +14,12 @@
             {{ description_trapping }}&nbsp; Those worth photographing were:
         </b></p>
         <ul><b>
-            {% for image in image_list %}
-                {% if image.mention %}
-                    <li>{{image.count_word + ' ' if image.count > 1}}{{ image.description + ' ' if image.description}}<a href="#{{ image.html_name }}">{{ image.common_name }}</a>{{'s' if image.count != 1}}{{ ' (previously photographed <a href="'|safe + image.previous_image +'">here</a>)'|safe if image.previous_image }}{{',' if not loop.last else '.' }}</li>
-                {% endif %}
+            {% for bullet in bullet_list %}
+                <li>{{bullet.count_word + ' ' if bullet.count > 1}}{{ bullet.description + ' ' if bullet.description}}<a href="#{{ bullet.html_name }}">{{ bullet.common_name }}</a>{{'s' if bullet.count != 1}}{{ ' (previously photographed <a href="'|safe + bullet.previous_image +'">here</a>)'|safe if bullet.previous_image }}{{',' if not loop.last else '.' }}</li>
             {% endfor %}
         </b></ul>
         <p><b>
-            Otherwise the trap included {% for reference in reference_list %}{{reference.count_word}} <a href={{reference.previous_image}}>{{reference.common_name}}</a>{{'s' if reference.count != 1}}{{', ' if loop.revindex > 2 else ' and ' if loop.revindex > 1 else '.' }}{% endfor %}
+            Otherwise the trap included {% for reference in reference_list %}{{reference.count_word}} <a href="{{reference.previous_image}}">{{reference.common_name}}</a>{{'s' if reference.count != 1}}{{', ' if loop.revindex > 2 else ' and ' if loop.revindex > 1 else '.' }}{% endfor %}
         </b></p>
         <p>
             <table border="0" height="23" width="1500">
@@ -29,7 +27,7 @@
                     <tr>
                         <td>
                             {% for image in image_list %}
-                               {% if image.mention %}<a name="{{ image.html_name }}"></a>{% endif %}<a href="{{ image.file_name }}"><img alt={{ image.common_name }} src={{ image.file_name }} border="1" height="275" hspace="2" vspace="2"></a>
+                               {% if image.label %}<a name="{{ image.html_name }}"></a>{% endif %}<a href="{{ image.file_name }}"><img alt="{{ image.common_name }}" src="{{ image.file_name }}" border="1" height="275" hspace="2" vspace="2"></a>
                             {% endfor %}
                         </td>
                     </tr>
@@ -38,7 +36,7 @@
         </p>
         <hr size="2" width="100%">
         <b>
-            <a href={{ url_site_index }}>Back to {{ site_name }} Homepage</a>
+            <a href="{{ url_site_index }}">Back to {{ site_name }} homepage</a>
         </b>
     </body>
 </html>

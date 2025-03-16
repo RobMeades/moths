@@ -241,7 +241,7 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                     # Alternatively, if the 'trapping_id' for the 'html_best_instance_id'
                     # is this 'trapping_id' then there _is_ no previous photo, this is our first.
                     if instance['html_best_url']:
-                        instance['html_previous_image'] = instance['html_best_url']
+                        instance['html_previous_image'] = '../' + instance['html_best_url']
                     else:
                         if instance['html_best_instance_id']:
                             if verbose:
@@ -270,7 +270,7 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                                    best_url_computed[0]['html_name']:
                                     if trapping['trapping_id'] != best_url_computed[0]['trapping_id']:
                                         prefix_str = TRAPPING_NAME_PREFIX + trapping['date'].strftime('%d-%m-%y')
-                                        instance['html_previous_image'] = urljoin(base_url, prefix_str + '/' + \
+                                        instance['html_previous_image'] = urljoin('../', prefix_str + '/' + \
                                                                                   prefix_str + '.html#' + \
                                                                                   best_url_computed[0]['html_name']) 
                                         if verbose:
@@ -370,9 +370,10 @@ def trappings_publish(base_dir, base_url, site_name, last_published_file_path,
         context['date_previous_dmy'] = date_previous.strftime('%d-%m-%y') # 01-06-25
         context['date_previous_long'] = date_previous.strftime('%e %B %Y').strip() # 1 June 2025
         context['description_trapping'] = trapping['description']
-        context['image_list'] = []
+        context['bullet_list'] = []
         context['reference_list'] = []
-        mention_list = []
+        context['image_list'] = []
+        bullet_list = []
         for instance in trapping['moth_list']:
             object = {}
             object['common_name'] = instance['common_name']
@@ -386,11 +387,6 @@ def trappings_publish(base_dir, base_url, site_name, last_published_file_path,
                 object['previous_image'] = instance['html_previous_image']
             if 'image_list' in instance:
                 for image in instance['image_list']:
-                    if object['html_name'] not in mention_list:
-                        # If we haven't mentioned this image before, do so now
-                        object['mention'] = True
-                    else:
-                        object['mention'] = False
                     # Have an image: make a unique name for it, write the
                     # file and add it to the 'image_list' of the context
                     image_file_name = instance['html_name'].lower() + '_' + str(image['instance_id'] + IMAGE_FILE_NAME_INDEX_OFFSET) + '.jpg'
@@ -399,9 +395,13 @@ def trappings_publish(base_dir, base_url, site_name, last_published_file_path,
                     object['file_name'] = image_file_name
                     object['description'] = image['html_description']
                     object['image'] = image_file_name
+                    object['label'] = False
+                    if object['html_name'] not in bullet_list:
+                        object['label'] = True
+                        context['bullet_list'].append(object.copy())
+                        # Update the bullet list
+                        bullet_list.append(object['html_name'])
                     context['image_list'].append(object.copy())
-                    # Update the mention list
-                    mention_list.append(object['html_name'])
             else:
                 # Either don't have an image or don't want to use it,
                 # add it to the 'reference_list' of the context
