@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `moth` (
   `confusion_4_id` int unsigned DEFAULT NULL,
   `html_name` tinytext COMMENT 'The HTML name that should be used for this moth, used when moth data is exported to an HTML page.  If NULL then a name based on the common name may be constructed.',
   `html_best_instance_id` int unsigned DEFAULT NULL COMMENT 'The instance ID which best represents this moth, i.e. the one with the best picture.  html_best_url may be populated instead.',
-  `html_best_url` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Populate this field if html_best_instance_id is not populated: it should point to an entry on from the existing https://www.meades.org which best represents this moth.',
+  `html_best_url` tinytext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Populate this field if html_best_instance_id is not populated: it should point to the html_label for this moth on an entry from the existing https://www.meades.org which best represents this moth.  The URL should be relative to the base URL, i.e. by default https://www.meades.org/moths, e.g. /moths_18-08-12/moths_18-08-12.html#Crambus_Agg.',
   PRIMARY KEY (`id`),
   KEY `agg_id` (`agg_id`) USING BTREE,
   KEY `confusion_1_id` (`confusion_1_id`) USING BTREE,
