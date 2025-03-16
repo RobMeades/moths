@@ -18,9 +18,11 @@
                 <li>{{bullet.count_word + ' ' if bullet.count > 1}}{{ bullet.description + ' ' if bullet.description}}<a href="#{{ bullet.html_name }}">{{ bullet.common_name }}</a>{{'s' if bullet.count != 1}}{{ ' (previously photographed <a href="'|safe + bullet.previous_image +'">here</a>)'|safe if bullet.previous_image }}{{',' if not loop.last else '.' }}</li>
             {% endfor %}
         </b></ul>
+        {% if reference_list|count > 0 %}
         <p><b>
             Otherwise the trap included {% for reference in reference_list %}{{reference.count_word}} <a href="{{reference.previous_image}}">{{reference.common_name}}</a>{{'s' if reference.count != 1}}{{', ' if loop.revindex > 2 else ' and ' if loop.revindex > 1 else '.' }}{% endfor %}
         </b></p>
+        {% endif %}
         <p>
             <table border="0" height="23" width="1500">
                 <tbody>

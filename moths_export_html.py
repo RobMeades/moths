@@ -159,75 +159,63 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                   f" after {date_from.strftime('%Y-%m-%d')}.")
             success = True
             for trapping in trapping_list:
-                # Next, a query to obtain the instances for each trapping that have
-                # an image attached or a count > 0
+                # Next, a query to obtain the moths for the instances in each
+                # trapping that have an image attached or a count > 0
                 query = f"""
-                SELECT
-                  {moths_common.TABLE_NAME_INSTANCE}.id AS instance_id,
-                  {moths_common.TABLE_NAME_INSTANCE}.count,
-                  {moths_common.TABLE_NAME_INSTANCE}.variant,
-                  {moths_common.TABLE_NAME_INSTANCE}.image,
-                  {moths_common.TABLE_NAME_INSTANCE}.html_use_image,
-                  {moths_common.TABLE_NAME_INSTANCE}.html_description,
+                SELECT DISTINCT
                   {moths_common.TABLE_NAME_MOTH}.id AS moth_id,
                   {moths_common.TABLE_NAME_MOTH}.common_name,
                   {moths_common.TABLE_NAME_MOTH}.scientific_name,
                   {moths_common.TABLE_NAME_MOTH}.html_name,
                   {moths_common.TABLE_NAME_MOTH}.html_best_instance_id,
-                  {moths_common.TABLE_NAME_MOTH}.html_best_url
+                  {moths_common.TABLE_NAME_MOTH}.html_best_url,
+                  {moths_common.TABLE_NAME_TRAPPING}.date -- required in order to use a DISTINCT SELECT
                 FROM {moths_common.TABLE_NAME_INSTANCE}
                 JOIN {moths_common.TABLE_NAME_TRAPPING} ON {moths_common.TABLE_NAME_INSTANCE}.trapping_id = {moths_common.TABLE_NAME_TRAPPING}.id
                 JOIN {moths_common.TABLE_NAME_MOTH} ON {moths_common.TABLE_NAME_INSTANCE}.moth_id = {moths_common.TABLE_NAME_MOTH}.id
                 WHERE {moths_common.TABLE_NAME_TRAPPING}.date = %s AND
                       (({moths_common.TABLE_NAME_INSTANCE}.html_use_image AND {moths_common.TABLE_NAME_INSTANCE}.image IS NOT NULL) OR {moths_common.TABLE_NAME_INSTANCE}.count > 0)
-                ORDER BY {moths_common.TABLE_NAME_TRAPPING}.date DESC;
                 """
                 cursor.execute(query, (trapping['date'],))
                 # Fetch the result
-                instance_list = cursor.fetchall()
+                trapping['moth_list'] = cursor.fetchall()
 
-                # The list may contain more than one instance per moth:
-                # reduce it to an instance per moth with a list of
-                # images and image-related stuff attached
-                trapping['moth_list'] = []
-                for instance in instance_list:
-                    instance_trapping = {}
-                    instance_trapping['count'] = 0
-                    found = False
-                    for item in trapping['moth_list']:
-                        if instance['moth_id'] == item['moth_id']:
-                            # Already have this 'moth_id' in the list,
-                            # use it instead
-                            instance_trapping = item
-                            found = True
-                            break;
-                    # Add the moth-related stuff that doesn't change between instances
-                    instance_trapping['moth_id'] = instance['moth_id']
-                    instance_trapping['common_name'] = instance['common_name']
-                    instance_trapping['scientific_name'] = instance['scientific_name']
-                    instance_trapping['html_name'] = instance['html_name']
-                    instance_trapping['html_best_instance_id'] = instance['html_best_instance_id']
-                    instance_trapping['html_best_url'] = instance['html_best_url']
-                    # Update the count and add the image-related stuff
-                    # to this item's 'image_list'
-                    instance_trapping['count'] += instance['count']
-                    if 'image' in instance and instance['html_use_image']:
-                        object = {}
-                        object['image'] = instance['image']
-                        #  Need this later for unique naming of the image file
-                        object['instance_id'] = instance['instance_id']
-                        object['html_description'] = instance['html_description']
-                        object['variant'] = instance['variant']
-                        if 'image_list' not in instance_trapping:
-                            instance_trapping['image_list'] = []
-                        instance_trapping['image_list'].append(object.copy())
-                    if not found:
-                        # Didn't have this moth ID before, add it to the list
-                        trapping['moth_list'].append(instance_trapping.copy())
+                # Now, for each moth, fetch the instances
+                # that have an image attached or a count > 0
+                instance_count = 0
+                for moth in trapping['moth_list']:
+                    query = f"""
+                    SELECT
+                      {moths_common.TABLE_NAME_INSTANCE}.id AS instance_id,
+                      {moths_common.TABLE_NAME_INSTANCE}.count,
+                      {moths_common.TABLE_NAME_INSTANCE}.variant,
+                      {moths_common.TABLE_NAME_INSTANCE}.image,
+                      {moths_common.TABLE_NAME_INSTANCE}.html_use_image,
+                      {moths_common.TABLE_NAME_INSTANCE}.html_description
+                    FROM {moths_common.TABLE_NAME_INSTANCE}
+                    JOIN {moths_common.TABLE_NAME_TRAPPING} ON {moths_common.TABLE_NAME_INSTANCE}.trapping_id = {moths_common.TABLE_NAME_TRAPPING}.id
+                    JOIN {moths_common.TABLE_NAME_MOTH} ON {moths_common.TABLE_NAME_INSTANCE}.moth_id = {moths_common.TABLE_NAME_MOTH}.id
+                    WHERE {moths_common.TABLE_NAME_TRAPPING}.date = %s AND {moths_common.TABLE_NAME_INSTANCE}.moth_id = %s AND
+                          (({moths_common.TABLE_NAME_INSTANCE}.html_use_image AND {moths_common.TABLE_NAME_INSTANCE}.image IS NOT NULL) OR {moths_common.TABLE_NAME_INSTANCE}.count > 0)
+                    """
+                    cursor.execute(query, (trapping['date'], moth['moth_id']))
+                    # Fetch the result
+                    instance_list = cursor.fetchall()
+                    # Go through the list, totalling up the counts to add
+                    # that at the top level, and adding the instances that
+                    # have an image attached to that moth's image list
+                    moth['image_list'] = []
+                    count = 0
+                    for instance in instance_list:
+                        count += instance['count']
+                        if instance['image'] and instance['html_use_image']:
+                            moth['image_list'].append(instance)
+                        instance_count += 1
+                    moth['count'] = count
 
                 if verbose:
                     print(f"{moths_common.PREFIX}trapping on {trapping['date'].strftime('%Y-%m-%d')}"
-                          f" had {len(instance_list)} instance(s), {len(trapping['moth_list'])} different moth(s).")
+                          f" had {instance_count} instance(s), {len(trapping['moth_list'])} type(s) of moth.")
                 for instance in trapping['moth_list']:
                     # If 'html_name' is empty, generate a name from 'common_name'
                     if not instance['html_name']:
@@ -385,7 +373,7 @@ def trappings_publish(base_dir, base_url, site_name, last_published_file_path,
                 object['count_word'] = 'lots of'
             if 'html_previous_image' in instance:
                 object['previous_image'] = instance['html_previous_image']
-            if 'image_list' in instance:
+            if len(instance['image_list']) > 0:
                 for image in instance['image_list']:
                     # Have an image: make a unique name for it, write the
                     # file and add it to the 'image_list' of the context
