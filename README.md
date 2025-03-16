@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 You will also need to have installed a [MySQL](https://www.mysql.com/) server somewhere and created on it a database with the [schema](schema.sql).  The machine on which you run the scripts will need to be able to log-in to that MySQL server.
 
-You will need to install a client application on the scripting machine that allows you to edit the database; for the purposes her [HeidiSQL](https://www.heidisql.com/) is sufficient.
+You will need to install a client application on the scripting machine that allows you to edit the database; for the purposes here [HeidiSQL](https://www.heidisql.com/) is sufficient.
 
 ## Usage
 The process for using the scripts is as follows:
