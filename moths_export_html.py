@@ -132,7 +132,7 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
     """
     Get the data required for the HTML page for trappings that are present in the
     database after the given date, returning a dictionary of trappings, each
-    of which includes a list of instances.
+    of which includes a list of moths, each if which includes a list of images.
     """
     trapping_list = []
     try:
@@ -180,7 +180,7 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                 # Fetch the result
                 trapping['moth_list'] = cursor.fetchall()
 
-                # Now, for each moth, fetch the instances
+                # Now, to each moth, attach the instances
                 # that have an image attached or a count > 0
                 instance_count = 0
                 for moth in trapping['moth_list']:
@@ -212,6 +212,12 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                             moth['image_list'].append(instance)
                         instance_count += 1
                     moth['count'] = count
+                    # Sort the image list so that, if there is an instance_id
+                    # which matches that moth's html_best_instance_id, it is
+                    # first in the list: this way it will be the one that is
+                    # labelled in the HTML output
+                    if 'html_best_instance_id' in moth:
+                        moth['image_list'].sort(key=lambda x: -(x['instance_id'] == moth['html_best_instance_id']))
 
                 if verbose:
                     print(f"{moths_common.PREFIX}trapping on {trapping['date'].strftime('%Y-%m-%d')}"
@@ -442,8 +448,8 @@ def export_html(base_dir, base_url, site_name, db_config, jinja2_env, verbose=Fa
                           f" plus the updated file {str(last_published_file_path)}"
                           f" (i.e. everything from {base_dir} if it was empty beforehand),"
                           f" to {base_url[:-1]} and your published moth data will be up to date.")
-                    print(f"{moths_common.PREFIX}you may modify the copies of these HTML files,"
-                           " they will not be modified by this program in future runs once uploaded.")
+                    print(f"{moths_common.PREFIX}you may modify the FTP'ed HTML files, they will"
+                           " not be modified by this program in future runs once uploaded.")
 
     return trappings_published
 
