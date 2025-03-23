@@ -23,6 +23,9 @@ from mysql.connector import Error
 
 import moths_common
 
+# The default maximum size for an image (use 0 for no limit)
+IMAGE_SIZE_MAX_DEFAULT = (1024 * 1024)
+
 def ensure_trapping(db_config, date, verbose=False):
     """
     Add a row to the trapping table in the database, if a row with
@@ -53,12 +56,8 @@ def ensure_trapping(db_config, date, verbose=False):
             result = cursor.fetchone()
             if result:
                 return_value = result[0]
-                if cursor.lastrowid == 0:
-                    print((f"{moths_common.PREFIX}{moths_common.TABLE_NAME_TRAPPING} table already"
-                           f" had an entry for date {date_str}, ID {return_value}."))
-                else:
-                    print((f"{moths_common.PREFIX}entry ID {return_value} added to"
-                           f" {moths_common.TABLE_NAME_TRAPPING} table with date {date_str}."))
+                print((f"{moths_common.PREFIX}trapping ID {return_value} in"
+                       f" {moths_common.TABLE_NAME_TRAPPING} table with date {date_str}."))
             else:
                 print((f"{moths_common.PREFIX}ERROR: no row found in {moths_common.TABLE_NAME_TRAPPING}"
                         " table after insert."))
@@ -80,7 +79,7 @@ def add_instance_list(db_config, trapping_id, file_list, verbose=False):
     try:
         if verbose:
             print(f"{moths_common.PREFIX}updating table {moths_common.TABLE_NAME_INSTANCE}...")
-        with CommonDatabaseConnection(**db_config) as connection:
+        with moths_common.DatabaseConnection(**db_config) as connection:
             cursor = connection.cursor()
             return_value = 0
             moth_count = 0
@@ -129,7 +128,7 @@ def date_get(date_str):
     except ValueError:
         return None
 
-def process_directory(base_dir, db_config, update_db=True, verbose=False):
+def process_directory(base_dir, db_config, file_size_max=0, update_db=True, verbose=False):
     """
     Iterate over sub-directories (each named with a date)
     """
@@ -185,7 +184,7 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
                     # Now have a list of the component parts of each image file name:
                     # the file_path, n, m and blah; sort the list in order of blah
                     file_list.sort(key=lambda x: x['blah'])
-                    # A final check: run through this list and check that, where we have
+                    # A final name check: run through this list and check that, where we have
                     # a name of the form blah_n_m.jpg, for any given blah the n's match,
                     # since we will treat only the first n of each to avoid double-counting
                     n = -1
@@ -203,6 +202,14 @@ def process_directory(base_dir, db_config, update_db=True, verbose=False):
                                 # A new instance of blah, capture n
                                 n = file['n']
                             blah = file['blah']
+                    if files_in_error == 0 and file_size_max > 0:
+                        # Before we commit to the import, check the sizes of each of the files
+                        for file in file_list:
+                            if os.path.getsize(file['file_path']) > file_size_max:
+                                print(f"{moths_common.PREFIX}ERROR: image '{file['file_path']}' is larger"
+                                      f" than the limit that has been set ({file_size_max}); use"
+                                       " the -s option to set a different limit if necessary.")
+                                files_in_error += 1
                     if files_in_error == 0:
                         # Make sure there is a row in the trapping table of the database for this date
                         if update_db:
@@ -266,6 +273,11 @@ if __name__ == '__main__':
     parser.add_argument('-x', default=False, action='store_true', help=("if this is specified a dry run will"
                                                                         " be performed, the database will not"
                                                                         " be updated."))
+    parser.add_argument('-s', type=int, default=IMAGE_SIZE_MAX_DEFAULT, help=(f"set a maximum image size, default"
+                                                                               " " + str(IMAGE_SIZE_MAX_DEFAULT) + ", specify"
+                                                                               " 0 for no limit; if an image larger than"
+                                                                               " this is found the entire import will be"
+                                                                               " aborted."))
     parser.add_argument('-v', default=False, action='store_true', help=("verbose debug."))
     args = parser.parse_args()
 
@@ -276,4 +288,4 @@ if __name__ == '__main__':
     }
 
     # Return 0 on success (i.e. something was imported), else 1
-    sys.exit(not (process_directory(args.base_dir, db_config, not args.x, args.v) >= 0))
+    sys.exit(not (process_directory(args.base_dir, db_config, int(args.s), not args.x, args.v) >= 0))
