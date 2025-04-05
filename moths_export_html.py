@@ -291,11 +291,11 @@ def trappings_db_get_data(base_url, date_from, db_config, verbose=False):
                             print((f"{moths_common.PREFIX}ERROR, moth ID {instance['moth_id']}"
                                    f" ('{instance['common_name']}') does not have a 'html_best_url'"
                                     " or a 'html_best_instance_id'."))
-            if success:
-                # Sort the list with entries that have no 'html_previous_image'
-                # (i.e. new ones) at the top, and then in descending order of 'count'
-                trapping['moth_list'].sort(key=lambda x: ('html_previous_image' in x, -x['count']))
-            else:
+                if success:
+                    # Sort the list with entries that have no 'html_previous_image'
+                    # (i.e. new ones) at the top, and then in descending order of 'count'
+                    trapping['moth_list'].sort(key=lambda x: ('html_previous_image' in x, -x['count']))
+            if not success:
                 trapping_list = []
     except Error as e:
         print(f"{moths_common.PREFIX}ERROR retrieving data: {e}.")
